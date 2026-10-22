@@ -13,4 +13,12 @@ def select_by_imdb_id(imdb_id):
     conn.connection.close()
     return answer
 
-print(select_by_imdb_id("tt1201607"))
+def insert_comment_rating(data):
+    try:
+        insert = Connection("INSERT INTO comments_ratings(IMDB_ID, Name, Rating, Date, Comment) VALUES (?,?,?,?,?,?);", data)
+        insert.answer
+        insert.connection.commit()
+        insert.connection.close()
+    except sqlite3.Error as error:
+        print("Error:", error)
+

@@ -29,7 +29,4 @@ class ModelApi:
     def get_plot(imdb_id):
         return request.get(f"{API}i={imdb_id}&plot=full").json()["Plot"]
 
-example = ModelApi()
-print(example.get_plot("tt1201607"))
-
 

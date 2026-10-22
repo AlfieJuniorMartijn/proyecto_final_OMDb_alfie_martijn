@@ -1,9 +1,14 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from model import ModelApi
 
-class ControllerApi:
-    def __init__(self):
-        self.model = ModelApi()
-        self.model.get_results(input("Please enter the title: "), input("Please enter the year (Leave blank if no specific year is needed): "))
+app = FastAPI()
 
-example = ControllerApi()
-print(example.model.formatted_result)
+# Allows your HTML page to call this server (otherwise the browser blocks it)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+@app.get("/movies")
+def get_movies(title: str, year: str = ""):
+    model = ModelApi()
+    model.get_results(title, year)
+    return model.formatted_result
