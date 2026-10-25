@@ -1,7 +1,8 @@
 import requests as request
+from backend.config import API_KEY
 
 #Save api key
-API = "http://www.omdbapi.com/?apikey=e3d2de7d&"
+API = f"http://www.omdbapi.com/?apikey={API_KEY}"
 
 class ModelApi:
     """
