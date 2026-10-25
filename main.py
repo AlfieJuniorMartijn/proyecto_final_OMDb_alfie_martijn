@@ -1,0 +1,1 @@
+from backend.controllers.comments_controller import app
