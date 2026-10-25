@@ -1,19 +1,17 @@
-const API_KEY = "e3d2de7d";
-const BASE_URL = "https://www.omdbapi.com/";
-const COMMENT_RATING_URL = "http://127.0.0.1:8000/movies/"
+const API_URL = "http://127.0.0.1:8000";
 
-// ===== Grab the HTML elements (ids must match index.html exactly) =====
+// Grab the HTML elements and save in variables
 const SearchForm = document.getElementById("SearchForm");
 const SearchTitleInput = document.getElementById("SearchTitleInput");
 const SearchYearInput = document.getElementById("SearchYearInput");
 const ResultsDiv = document.getElementById("results");
 
-// ===== Search: calls OMDb and shows the results =====
+// Search: make request o python API => makes request to OMDB API
 async function searchMovies() {
   const title = SearchTitleInput.value.trim();
   const year = SearchYearInput.value.trim();
 
-  // OMDb needs a title; the year is only an extra filter (same as the Python model)
+  // Title is mandatory, year is optional
   if (title === "") {
     ResultsDiv.innerHTML = `<div class="alert alert-warning">Please enter a title.</div>`;
     return;
@@ -21,36 +19,29 @@ async function searchMovies() {
 
   ResultsDiv.innerHTML = `<div class="text-center"><div class="spinner-border text-success"></div></div>`;
 
-  let searchUrl = `${BASE_URL}?apikey=${API_KEY}&s=${encodeURIComponent(title)}&type=movie`;
+  let searchUrl = `${API_URL}/search?title=${encodeURIComponent(title)}`;
   if (year !== "") {
-    searchUrl += `&y=${encodeURIComponent(year)}`;
+    searchUrl += `&year=${encodeURIComponent(year)}`;
   }
 
   try {
-    // 1st request: list of movies matching the title (and year)
+    // Python returns a list of movies, each with Title, Year, Plot and imdbID
     const response = await fetch(searchUrl);
-    const data = await response.json();
+    const movies = await response.json();
 
-    if (data.Response === "False") {
-      ResultsDiv.innerHTML = `<div class="alert alert-warning">${data.Error}</div>`;
+    if (movies.length === 0) {
+      ResultsDiv.innerHTML = `<div class="alert alert-warning">No movies found.</div>`;
       return;
     }
 
-    // 2nd request per movie: full details including the plot
-    const details = await Promise.all(
-      data.Search.map(movie =>
-        fetch(`${BASE_URL}?apikey=${API_KEY}&i=${movie.imdbID}`).then(res => res.json())
-      )
-    );
-
-    showResults(details);
+    showResults(movies);
   } catch (error) {
-    ResultsDiv.innerHTML = `<div class="alert alert-danger">Something went wrong. Check your connection or API key.</div>`;
+    ResultsDiv.innerHTML = `<div class="alert alert-danger">Something went wrong. Is the Python server running?</div>`;
     console.error(error);
   }
 }
 
-// ===== Build one card per movie =====
+// Build one card per movie
 function showResults(movies) {
   ResultsDiv.innerHTML = "";
 
@@ -69,18 +60,7 @@ function showResults(movies) {
     `;
   }
 }
-
-function validate_fields(name, comment) {
-  if (name === "") {
-    alert("Please fill in your name")
-    return;
-  }
-  if (comment === "") {
-    alert("Please fill in a comment")
-    return;
-  }
-}
-
+// Gives todays date in format DD-MM-YYYY
 function today(){
   const now = new Date();
 
@@ -91,57 +71,117 @@ function today(){
   return `${day}-${month}-${year}`;
 }
 
-function add_comment_rating(){
-  const date = today()
-  const imdb_id = document.getElementById("imdb_id").value;
-  const name = document.getElementById("name").value;
-  const rating = document.getElementById("rating").value;
-  const comment = document.getElementById("comment").value;
-
-  validate_fields(name, comment);
-
-  fetch(
-      COMMENT_RATING_URL,
-      {
-        method: "POST",
-        headers:{
-          "Content-Type":"application/json"
-        },
-        body: JSON.stringify(
-            {
-                  date: date,
-                  imdb_id: imdb_id,
-                  comment: comment,
-                  name: name,
-                  rating: Number(rating),
-            }
-        )
-      }
-
-  )
-      .then(response=> {
-        if(!response.ok){
-          throw new Error(`Error HTTP: ${response.status}`)
-        }
-      }).catch(
-          error=>{
-            alert("The comment / rating could not be added");
-            console.log("Error detail: ",error);
-
-          }
-  );
-}
-
-const API_URL = "http://127.0.0.1:8000";
-
 const commentsBox = document.getElementById("commentsBox");
 const commentsList = document.getElementById("commentsList");
 const commentForm = document.getElementById("commentForm");
 let currentImdbId = null;   // remembers which movie is open
 
+const reviewSummary = document.getElementById("reviewSummary");
+const starInput = document.getElementById("starInput");
+const starInputLabel = document.getElementById("starInputLabel");
+let selectedRating = 0;     // the rating the user clicked (0 = nothing chosen yet)
+
+// Builds 5 stars for a rating like 3.5: three full, one half, one empty
+function starsHtml(rating) {
+  let html = "";
+  for (let i = 1; i <= 5; i++) {
+    let fill = 0;
+    if (rating >= i) {
+      fill = 100;
+    } else if (rating >= i - 0.5) {
+      fill = 50;
+    }
+    html += `<span class="star">★<span class="fill" style="width: ${fill}%;">★</span></span>`;
+  }
+  return html;
+}
+
+// Draws the clickable stars in the form
+function drawStarInput(rating) {
+  starInput.innerHTML = starsHtml(rating);
+  if (selectedRating === 0) {
+    starInputLabel.textContent = "Click a star to rate";
+  } else {
+    starInputLabel.textContent = `Your rating: ${selectedRating} / 5`;
+  }
+}
+
+// Works out which rating the mouse is pointing at (left half of a star = .5)
+function ratingFromMouse(event) {
+  const star = event.target.closest(".star");
+  if (!star) return null;
+
+  const position = Array.from(starInput.children).indexOf(star) + 1;   // 1 to 5
+  const box = star.getBoundingClientRect();
+  const onLeftHalf = event.clientX - box.left < box.width / 2;
+
+  return onLeftHalf ? position - 0.5 : position;
+}
+
+// Preview while hovering, save on click, go back to the saved rating when the mouse leaves
+starInput.addEventListener("mousemove", (event) => {
+  const rating = ratingFromMouse(event);
+  if (rating !== null) starInput.innerHTML = starsHtml(rating);
+});
+
+starInput.addEventListener("click", (event) => {
+  const rating = ratingFromMouse(event);
+  if (rating !== null) {
+    selectedRating = rating;
+    drawStarInput(selectedRating);
+  }
+});
+
+starInput.addEventListener("mouseleave", () => drawStarInput(selectedRating));
+
+drawStarInput(0);
+
+// Reviews summary card
+function showSummary(comments) {
+  // Count how many ratings belong to each bar (3.5 counts as 4, 0.5 as 1)
+  const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  let total = 0;
+  for (const c of comments) {
+    total += c.Rating;
+    counts[Math.max(1, Math.round(c.Rating))] += 1;
+  }
+
+  const average = comments.length > 0 ? total / comments.length : 0;
+  const averageText = comments.length > 0 ? average.toFixed(1) : "–";
+
+  // One bar per star value, 5 at the top
+  let bars = "";
+  for (let star = 5; star >= 1; star--) {
+    const percent = comments.length > 0 ? (counts[star] / comments.length) * 100 : 0;
+    bars += `
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <div class="progress flex-grow-1" style="height: 8px;">
+          <div class="progress-bar bg-dark" style="width: ${percent}%;"></div>
+        </div>
+        <small style="width: 10px;">${star}</small>
+      </div>`;
+  }
+
+  reviewSummary.innerHTML = `
+    <div class="border rounded-3 p-3 mb-3">
+      <h4 class="mb-3">Reviews</h4>
+      <div class="d-flex align-items-center gap-3">
+        <div class="text-center">
+          <div class="rounded-circle bg-body-secondary d-flex align-items-center justify-content-center mx-auto fs-2"
+               style="width: 90px; height: 90px;">${averageText}</div>
+          <div class="mt-2 text-nowrap">${starsHtml(average)}</div>
+          <div class="small text-body-secondary">${comments.length} reviews</div>
+        </div>
+        <div class="flex-grow-1">${bars}</div>
+      </div>
+    </div>`;
+}
+
 // Open the box and load the comments
 async function openComments(imdbID) {
   currentImdbId = imdbID;
+  selectedRating = 0;         // start with empty stars for each movie
+  drawStarInput(0);
   commentsBox.classList.remove("d-none");
   await loadComments();
 }
@@ -156,6 +196,8 @@ async function loadComments() {
   const response = await fetch(`${API_URL}/movies/${currentImdbId}`);
   const comments = await response.json();
 
+  showSummary(comments);
+
   if (comments.length === 0) {
     commentsList.innerHTML = `<p class="text-body-secondary">No comments yet.</p>`;
     return;
@@ -165,39 +207,46 @@ async function loadComments() {
   for (const c of comments) {
     commentsList.innerHTML += `
       <div class="border rounded p-2 mb-2">
-        <strong>${escapeHtml(c.Name)}</strong> · ${c.Rating}/5
+        <strong>${c.Name}</strong> <span class="stars-sm">${starsHtml(c.Rating)}</span>
         <div class="small text-body-secondary">${c.Date}</div>
-        <p class="mb-0">${escapeHtml(c.Comment)}</p>
+        <p class="mb-0">${c.Comment}</p>
       </div>`;
   }
 }
 
-// Send a new comment to your Python API
+// Send a new comment to Python API
 commentForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
-  await fetch(`${API_URL}/comments`, {
+  if (selectedRating === 0) {
+    alert("Please click the stars to give a rating");
+    return;
+  }
+
+  const response = await fetch(`${API_URL}/movies/`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       imdb_id: currentImdbId,
       name: document.getElementById("commentName").value,
-      rating: Number(document.getElementById("commentRating").value),
+      rating: selectedRating,
       date: today(),
       comment: document.getElementById("commentText").value
     })
   });
 
+  if (!response.ok) {
+    console.log("Error:", response.status, await response.json());
+    alert("The comment / rating could not be added");
+    return;
+  }
+
   commentForm.reset();     // empty the form
+  selectedRating = 0;      // and the stars
+  drawStarInput(0);
   await loadComments();    // show the list again, including the new comment
 });
 
-// Makes user text safe to show (stops people posting <script> as a comment)
-function escapeHtml(text) {
-  const div = document.createElement("div");
-  div.textContent = text;
-  return div.innerHTML;
-}
 
 // ===== One form, one Search button (Enter in either box also searches) =====
 SearchForm.addEventListener("submit", (event) => {
